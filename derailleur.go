@@ -29,15 +29,9 @@ func main() {
 	log.SetOutput(os.Stdout)
 	log.SetLevel(log.DebugLevel)
 
-	//listenOn := ":8090"
+	listenOn := ":8050"
 	app := Derailleur{}
-	// app.startServer(listenOn)
-	deploy, err := app.attemptDeploy()
-	if err != nil {
-		log.Error("Deploy failed!", err)
-	} else {
-		log.Infof("deploy complete, it took %v seconds", deploy.duration)
-	}
+	app.startServer(listenOn)
 }
 
 func (a *Derailleur) attemptDeploy() (d Deploy, e error) {
@@ -90,14 +84,14 @@ func (d *Deploy) start() error {
 }
 
 func (d *Deploy) pullDockerImage() error {
-	d.log("pulling docker image")
+	d.log("🐳⤵️ pulling docker image")
 	cmd, err := exec.Command("docker", "pull", d.dockerImage).CombinedOutput()
 	d.log(string(cmd))
 	return err
 }
 
 func (d *Deploy) restartJobs() error {
-	d.log("restarting jobs")
+	d.log("👔 restarting jobs")
 	for i := 1; i <= d.jobServers; i++ {
 		d.log(fmt.Sprintf("restarting job server %d", i))
 		cmd, err := exec.Command("systemctl", "restart", fmt.Sprintf("docker-bike-app-jobs-%d", i)).CombinedOutput()
@@ -117,7 +111,7 @@ func (d *Deploy) releaseApp() error {
 }
 
 func (d *Deploy) restartWeb() error {
-	d.log("restarting web servers")
+	d.log("🌐 restarting web servers")
 	for i := 1; i <= d.webServers; i++ {
 		d.log(fmt.Sprintf("restarting web server %d", i))
 		cmd, err := exec.Command("systemctl", "restart", fmt.Sprintf("docker-bike-app-web-%d", i)).CombinedOutput()
@@ -134,7 +128,7 @@ func (d *Deploy) restartWeb() error {
 }
 
 func (d *Deploy) postDeploy() error {
-	d.log("running post-deploy cleanup")
+	d.log("🧹 running post-deploy cleanup")
 	return d.runRakeTask("fly:clear_cdn")
 }
 
@@ -150,7 +144,7 @@ func (d *Deploy) runRakeTask(name string) error {
 
 func (d *Deploy) waitForWebServer(serverPort int) error {
 	url := fmt.Sprintf("http://%s:%d/_ping", d.webServerIp, serverPort)
-	log.Info("checking ", url)
+	log.Debug("checking ", url)
 	timeoutChan := time.After(60 * time.Second)
 	for {
 		select {
@@ -176,9 +170,9 @@ func (a *Derailleur) handleDeployRequest(w http.ResponseWriter, req *http.Reques
 
 	deploy, err := a.attemptDeploy()
 	if err != nil {
-		log.Error("Deploy failed! ", err)
+		log.Error("🚨 Deploy failed! ", err)
 		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(w, "deploy failed: %v\n", err)
+		fmt.Fprintf(w, "🚨 deploy failed: %v\n", err)
 	} else {
 		fmt.Fprintf(w, "deploy complete, it took %v seconds\n", deploy.duration)
 	}

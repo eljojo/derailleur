@@ -76,8 +76,8 @@ func (d *Deploy) restartJobs() error {
 	for i := 1; i <= d.jobServers; i++ {
 		d.log(fmt.Sprintf("restarting job server %d", i))
 		cmd, err := exec.Command("systemctl", "restart", fmt.Sprintf("docker-bike-app-jobs-%d", i)).CombinedOutput()
-		d.log(string(cmd))
 		if err != nil {
+			d.log(string(cmd))
 			return err
 		}
 		time.Sleep(5 * time.Second)
@@ -97,8 +97,8 @@ func (d *Deploy) restartWeb() error {
 	for i := 1; i <= d.webServers; i++ {
 		d.log(fmt.Sprintf("restarting web server %d", i))
 		cmd, err := exec.Command("systemctl", "restart", fmt.Sprintf("docker-bike-app-web-%d", i)).CombinedOutput()
-		d.log(string(cmd))
 		if err != nil {
+			d.log(string(cmd))
 			return err
 		}
 		time.Sleep(10 * time.Second)
@@ -116,7 +116,7 @@ func (d *Deploy) runRakeTask(name string) error {
 	container_name := "bike-app-web-1"
 	// d.log(container_name + " " + name)
 	cmd, err := exec.Command(
-		"docker", "exec", "-it", "-e", "NEW_RELIC_AGENT_ENABLED=false", container_name, "/app/bin/rake", name,
+		"docker", "exec", "-i", "-e", "NEW_RELIC_AGENT_ENABLED=false", container_name, "/app/bin/rake", name,
 	).CombinedOutput()
 	d.log(string(cmd))
 	return err

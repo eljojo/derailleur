@@ -16,18 +16,17 @@ type Derailleur struct {
 }
 
 type Deploy struct {
-	duration  time.Duration
-	logString string
+	duration   time.Duration
+	logString  string
+	jobServers int
+	webServers int
 }
 
 func (d *Deploy) pullDockerImage() error {
 	d.log("pulling docker image")
-	cmd, err := exec.Command("docker", "pull", "ghcr.io/eljojo/bike-app:main").Output()
-	if err != nil {
-		return err
-	}
+	cmd, err := exec.Command("docker", "pull", "ghcr.io/eljojo/bike-app:main").CombinedOutput()
 	d.log(string(cmd))
-	return nil
+	return err
 }
 
 func (d *Deploy) restartJobs() error {
@@ -99,7 +98,10 @@ func (a *Derailleur) attemptDeploy() (d Deploy, e error) {
 	}
 	defer a.mu.Unlock()
 
-	deploy := Deploy{}
+	deploy := Deploy{
+		jobServers: 2,
+		webServers: 3,
+	}
 	err := deploy.start()
 	return deploy, err
 }
@@ -128,7 +130,8 @@ func main() {
 	log.SetOutput(os.Stdout)
 	log.SetLevel(log.DebugLevel)
 
-	listenOn := ":8090"
+	//listenOn := ":8090"
 	app := Derailleur{}
-	app.startServer(listenOn)
+	// app.startServer(listenOn)
+	app.attemptDeploy()
 }

@@ -187,6 +187,7 @@ func (a *Derailleur) handleDeployRequest(w http.ResponseWriter, req *http.Reques
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintf(w, "🚨 deploy failed: %v\n", err)
 	} else {
+		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, "deploy complete, it took %v seconds\n", deploy.duration)
 	}
 	fmt.Fprintf(w, deploy.logString)
@@ -203,7 +204,7 @@ func (a *Derailleur) isDeploying() bool {
 
 func (a *Derailleur) handleStatusRequest(w http.ResponseWriter, req *http.Request) {
 	log.WithFields(log.Fields{"IP": req.RemoteAddr}).Info("status request")
-
+	w.WriteHeader(http.StatusOK)
 	if a.isDeploying() {
 		fmt.Fprintf(w, "deploy in progress")
 	} else {

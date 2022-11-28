@@ -16,10 +16,13 @@ type Derailleur struct {
 }
 
 type Deploy struct {
-	duration   time.Duration
-	logString  string
-	jobServers int
-	webServers int
+	duration    time.Duration
+	logString   string
+	jobServers  int
+	webServers  int
+	baseWebPort int
+	webServerIp string
+	dockerImage string
 }
 
 func main() {
@@ -32,6 +35,24 @@ func main() {
 	app.attemptDeploy()
 }
 
+func (a *Derailleur) attemptDeploy() (d Deploy, e error) {
+	if !a.mu.TryLock() {
+		err := fmt.Errorf("another deploy is already running")
+		return Deploy{}, err
+	}
+	defer a.mu.Unlock()
+
+	deploy := Deploy{
+		jobServers:  2,
+		webServers:  3,
+		baseWebPort: 8090,
+		webServerIp: "100.67.131.62",
+		dockerImage: "ghcr.io/eljojo/bike-app:main",
+	}
+	err := deploy.start()
+	return deploy, err
+}
+
 func (d *Deploy) start() error {
 	start := time.Now()
 	d.log("🧑‍💻🧿 deploying bike-app")
@@ -40,7 +61,6 @@ func (d *Deploy) start() error {
 	if err != nil {
 		return fmt.Errorf("failed to pull docker image: %w", err)
 	}
-
 	err = d.restartJobs()
 	if err != nil {
 		return fmt.Errorf("failed to restart job servers: %w", err)
@@ -66,7 +86,7 @@ func (d *Deploy) start() error {
 
 func (d *Deploy) pullDockerImage() error {
 	d.log("pulling docker image")
-	cmd, err := exec.Command("docker", "pull", "ghcr.io/eljojo/bike-app:main").CombinedOutput()
+	cmd, err := exec.Command("docker", "pull", d.dockerImage).CombinedOutput()
 	d.log(string(cmd))
 	return err
 }
@@ -101,7 +121,10 @@ func (d *Deploy) restartWeb() error {
 			d.log(string(cmd))
 			return err
 		}
-		time.Sleep(10 * time.Second)
+		err = d.waitForWebServer(d.baseWebPort + i)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -113,8 +136,8 @@ func (d *Deploy) postDeploy() error {
 }
 
 func (d *Deploy) runRakeTask(name string) error {
-	container_name := "bike-app-web-1"
-	// d.log(container_name + " " + name)
+	container_name := "bike-app-job-1" // TODO: make this a new task-runner container
+	log.Debugf("running rake task %s on %s ", name, container_name)
 	cmd, err := exec.Command(
 		"docker", "exec", "-i", "-e", "NEW_RELIC_AGENT_ENABLED=false", container_name, "/app/bin/rake", name,
 	).CombinedOutput()
@@ -122,24 +145,25 @@ func (d *Deploy) runRakeTask(name string) error {
 	return err
 }
 
+func (d *Deploy) waitForWebServer(serverPort int) error {
+	timeoutChan := time.After(60 * time.Second)
+	for {
+		select {
+		case <-timeoutChan:
+			return fmt.Errorf("timed out waiting for server to start")
+		default:
+			_, err := http.Get("http://" + d.webServerIp + ":" + string(serverPort) + "/_ping")
+			if err == nil {
+				return nil
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+}
+
 func (d *Deploy) log(msg string) {
 	log.Info(msg)
 	d.logString = d.logString + msg + "\n"
-}
-
-func (a *Derailleur) attemptDeploy() (d Deploy, e error) {
-	if a.mu.TryLock() == false {
-		err := fmt.Errorf("another deploy is already running")
-		return Deploy{}, err
-	}
-	defer a.mu.Unlock()
-
-	deploy := Deploy{
-		jobServers: 2,
-		webServers: 3,
-	}
-	err := deploy.start()
-	return deploy, err
 }
 
 func (a *Derailleur) handleDeployRequest(w http.ResponseWriter, req *http.Request) {

@@ -22,35 +22,14 @@ type Deploy struct {
 	webServers int
 }
 
-func (d *Deploy) pullDockerImage() error {
-	d.log("pulling docker image")
-	cmd, err := exec.Command("docker", "pull", "ghcr.io/eljojo/bike-app:main").CombinedOutput()
-	d.log(string(cmd))
-	return err
-}
+func main() {
+	log.SetOutput(os.Stdout)
+	log.SetLevel(log.DebugLevel)
 
-func (d *Deploy) restartJobs() error {
-	d.log("restarting jobs")
-	time.Sleep(2 * time.Second)
-	return nil
-}
-
-func (d *Deploy) releaseApp() error {
-	d.log("💽🧺 running migrations and uploading assets to CDN")
-	time.Sleep(2 * time.Second)
-	return nil
-}
-
-func (d *Deploy) restartWeb() error {
-	d.log("restarting web servers")
-	time.Sleep(2 * time.Second)
-	return nil
-}
-
-func (d *Deploy) postDeploy() error {
-	d.log("running post-deploy")
-	time.Sleep(2 * time.Second)
-	return nil
+	//listenOn := ":8090"
+	app := Derailleur{}
+	// app.startServer(listenOn)
+	app.attemptDeploy()
 }
 
 func (d *Deploy) start() error {
@@ -74,7 +53,6 @@ func (d *Deploy) start() error {
 	if err != nil {
 		return fmt.Errorf("failed to restart web servers: %w", err)
 	}
-
 	d.log("🎉 great success, app is running new version")
 
 	err = d.postDeploy()
@@ -84,6 +62,64 @@ func (d *Deploy) start() error {
 
 	d.duration = time.Since(start)
 	return nil
+}
+
+func (d *Deploy) pullDockerImage() error {
+	d.log("pulling docker image")
+	cmd, err := exec.Command("docker", "pull", "ghcr.io/eljojo/bike-app:main").CombinedOutput()
+	d.log(string(cmd))
+	return err
+}
+
+func (d *Deploy) restartJobs() error {
+	d.log("restarting jobs")
+	for i := 1; i <= d.jobServers; i++ {
+		d.log(fmt.Sprintf("restarting job server %d", i))
+		cmd, err := exec.Command("systemctl", "restart", fmt.Sprintf("docker-bike-app-jobs-%d", i)).CombinedOutput()
+		d.log(string(cmd))
+		if err != nil {
+			return err
+		}
+		time.Sleep(5 * time.Second)
+	}
+
+	return nil
+}
+
+func (d *Deploy) releaseApp() error {
+	d.log("💽🧺 running migrations and uploading assets to CDN")
+	d.runRakeTask("fly:release")
+	return nil
+}
+
+func (d *Deploy) restartWeb() error {
+	d.log("restarting web servers")
+	for i := 1; i <= d.webServers; i++ {
+		d.log(fmt.Sprintf("restarting web server %d", i))
+		cmd, err := exec.Command("systemctl", "restart", fmt.Sprintf("docker-bike-app-web-%d", i)).CombinedOutput()
+		d.log(string(cmd))
+		if err != nil {
+			return err
+		}
+		time.Sleep(10 * time.Second)
+	}
+	return nil
+}
+
+func (d *Deploy) postDeploy() error {
+	d.log("running post-deploy cleanup")
+	d.runRakeTask("fly:clear_cdn")
+	return nil
+}
+
+func (d *Deploy) runRakeTask(name string) error {
+	container_name := "bike-app-web-1"
+	// d.log(container_name + " " + name)
+	cmd, err := exec.Command(
+		"docker", "exec", "-it", "-e", "NEW_RELIC_AGENT_ENABLED=false", container_name, "/app/bin/rake", name,
+	).CombinedOutput()
+	d.log(string(cmd))
+	return err
 }
 
 func (d *Deploy) log(msg string) {
@@ -124,14 +160,4 @@ func (a *Derailleur) startServer(listenOn string) {
 	fmt.Println("listening on ", listenOn)
 	http.HandleFunc("/", a.handleDeployRequest)
 	http.ListenAndServe(listenOn, nil)
-}
-
-func main() {
-	log.SetOutput(os.Stdout)
-	log.SetLevel(log.DebugLevel)
-
-	//listenOn := ":8090"
-	app := Derailleur{}
-	// app.startServer(listenOn)
-	app.attemptDeploy()
 }

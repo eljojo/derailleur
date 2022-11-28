@@ -166,6 +166,11 @@ func (d *Deploy) log(msg string) {
 }
 
 func (a *Derailleur) handleDeployRequest(w http.ResponseWriter, req *http.Request) {
+	if req.Method != "POST" {
+		http.Error(w, "404 not found.", http.StatusNotFound)
+		return
+	}
+
 	user, pass, ok := req.BasicAuth()
 	if !ok || user != os.Getenv("AUTH_USER") || pass != os.Getenv("AUTH_PASSWORD") {
 		w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)

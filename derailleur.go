@@ -85,7 +85,7 @@ func (d *Deploy) start() error {
 
 func (d *Deploy) pullDockerImage() error {
 	d.log("🐳⤵️  pulling docker image")
-	cmd, err := exec.Command("docker", "pull", d.dockerImage).CombinedOutput()
+	cmd, err := exec.Command("/run/current-system/sw/bin/docker", "pull", d.dockerImage).CombinedOutput()
 	d.log(string(cmd))
 	return err
 }
@@ -94,7 +94,7 @@ func (d *Deploy) restartJobs() error {
 	d.log("👔 restarting jobs")
 	for i := 1; i <= d.jobServers; i++ {
 		d.log(fmt.Sprintf("restarting job server %d", i))
-		cmd, err := exec.Command("systemctl", "restart", fmt.Sprintf("docker-bike-app-jobs-%d", i)).CombinedOutput()
+		cmd, err := exec.Command("/run/current-system/sw/bin/systemctl", "restart", fmt.Sprintf("docker-bike-app-jobs-%d", i)).CombinedOutput()
 		if err != nil {
 			d.log(string(cmd))
 			return err
@@ -114,7 +114,7 @@ func (d *Deploy) restartWeb() error {
 	d.log("🌐 restarting web servers")
 	for i := 1; i <= d.webServers; i++ {
 		d.log(fmt.Sprintf("restarting web server %d", i))
-		cmd, err := exec.Command("systemctl", "restart", fmt.Sprintf("docker-bike-app-web-%d", i)).CombinedOutput()
+		cmd, err := exec.Command("/run/current-system/sw/bin/systemctl", "restart", fmt.Sprintf("docker-bike-app-web-%d", i)).CombinedOutput()
 		if err != nil {
 			d.log(string(cmd))
 			return err
@@ -136,7 +136,7 @@ func (d *Deploy) runRakeTask(name string) error {
 	container_name := "bike-app-jobs-1" // TODO: make this a new task-runner container
 	log.Debugf("running rake task %s on %s ", name, container_name)
 	cmd, err := exec.Command(
-		"docker", "exec", "-i", "-e", "NEW_RELIC_AGENT_ENABLED=false", container_name, "/app/bin/rake", name,
+		"/run/current-system/sw/bin/docker", "exec", "-i", "-e", "NEW_RELIC_AGENT_ENABLED=false", container_name, "/app/bin/rake", name,
 	).CombinedOutput()
 	d.log(string(cmd))
 	return err

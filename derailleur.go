@@ -72,19 +72,19 @@ func (d *Deploy) start() error {
 	if err != nil {
 		return fmt.Errorf("failed to restart web servers: %w", err)
 	}
-	d.log("🎉 great success, app is running new version")
-
 	err = d.postDeploy()
 	if err != nil {
 		return fmt.Errorf("failed to run post-deploy tasks: %w", err)
 	}
+
+	d.log("🎉 great success, app is running new version")
 
 	d.duration = time.Since(start)
 	return nil
 }
 
 func (d *Deploy) pullDockerImage() error {
-	d.log("🐳⤵️ pulling docker image")
+	d.log("🐳⤵️  pulling docker image")
 	cmd, err := exec.Command("docker", "pull", d.dockerImage).CombinedOutput()
 	d.log(string(cmd))
 	return err

@@ -32,7 +32,12 @@ func main() {
 	//listenOn := ":8090"
 	app := Derailleur{}
 	// app.startServer(listenOn)
-	app.attemptDeploy()
+	deploy, err := app.attemptDeploy()
+	if err != nil {
+		log.Error("Deploy failed!", err)
+	} else {
+		log.Infof("deploy complete, it took %v seconds", deploy.duration)
+	}
 }
 
 func (a *Derailleur) attemptDeploy() (d Deploy, e error) {
@@ -108,8 +113,7 @@ func (d *Deploy) restartJobs() error {
 
 func (d *Deploy) releaseApp() error {
 	d.log("💽🧺 running migrations and uploading assets to CDN")
-	d.runRakeTask("fly:release")
-	return nil
+	return d.runRakeTask("fly:release")
 }
 
 func (d *Deploy) restartWeb() error {
@@ -131,12 +135,11 @@ func (d *Deploy) restartWeb() error {
 
 func (d *Deploy) postDeploy() error {
 	d.log("running post-deploy cleanup")
-	d.runRakeTask("fly:clear_cdn")
-	return nil
+	return d.runRakeTask("fly:clear_cdn")
 }
 
 func (d *Deploy) runRakeTask(name string) error {
-	container_name := "bike-app-job-1" // TODO: make this a new task-runner container
+	container_name := "bike-app-jobs-1" // TODO: make this a new task-runner container
 	log.Debugf("running rake task %s on %s ", name, container_name)
 	cmd, err := exec.Command(
 		"docker", "exec", "-i", "-e", "NEW_RELIC_AGENT_ENABLED=false", container_name, "/app/bin/rake", name,
@@ -146,13 +149,15 @@ func (d *Deploy) runRakeTask(name string) error {
 }
 
 func (d *Deploy) waitForWebServer(serverPort int) error {
+	url := fmt.Sprintf("http://%s:%d/_ping", d.webServerIp, serverPort)
+	log.Info("checking ", url)
 	timeoutChan := time.After(60 * time.Second)
 	for {
 		select {
 		case <-timeoutChan:
 			return fmt.Errorf("timed out waiting for server to start")
 		default:
-			_, err := http.Get("http://" + d.webServerIp + ":" + string(serverPort) + "/_ping")
+			_, err := http.Get(url)
 			if err == nil {
 				return nil
 			}

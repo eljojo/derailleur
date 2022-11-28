@@ -29,7 +29,7 @@ func main() {
 	log.SetOutput(os.Stdout)
 	log.SetLevel(log.DebugLevel)
 
-	listenOn := ":8050"
+	listenOn := "100.67.131.62:8050"
 	app := Derailleur{}
 	app.startServer(listenOn)
 }
@@ -207,7 +207,7 @@ func (a *Derailleur) handleStatusRequest(w http.ResponseWriter, req *http.Reques
 }
 
 func (a *Derailleur) startServer(listenOn string) {
-	fmt.Println("listening on ", listenOn)
+	fmt.Println("listening on", listenOn)
 	http.HandleFunc("/", a.handleStatusRequest)
 	http.HandleFunc("/deploy", a.handleDeployRequest)
 	http.ListenAndServe(listenOn, nil)

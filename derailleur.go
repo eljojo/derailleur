@@ -166,6 +166,14 @@ func (d *Deploy) log(msg string) {
 }
 
 func (a *Derailleur) handleDeployRequest(w http.ResponseWriter, req *http.Request) {
+	user, pass, ok := req.BasicAuth()
+	if !ok || user != os.Getenv("AUTH_USER") || pass != os.Getenv("AUTH_PASSWORD") {
+		w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+		http.Error(w, "Unauthorized.", http.StatusUnauthorized)
+		log.WithFields(log.Fields{"IP": req.RemoteAddr}).Warn("an unauthorized deploy was attempted")
+		return
+	}
+
 	log.WithFields(log.Fields{"IP": req.RemoteAddr}).Info("attempting deploy")
 
 	deploy, err := a.attemptDeploy()
@@ -179,8 +187,28 @@ func (a *Derailleur) handleDeployRequest(w http.ResponseWriter, req *http.Reques
 	fmt.Fprintf(w, deploy.logString)
 }
 
+func (a *Derailleur) isDeploying() bool {
+	if a.mu.TryLock() {
+		a.mu.Unlock()
+		return false
+	}
+
+	return true
+}
+
+func (a *Derailleur) handleStatusRequest(w http.ResponseWriter, req *http.Request) {
+	log.WithFields(log.Fields{"IP": req.RemoteAddr}).Info("status request")
+
+	if a.isDeploying() {
+		fmt.Fprintf(w, "deploy in progress")
+	} else {
+		fmt.Fprintf(w, "nothing is deploying right now")
+	}
+}
+
 func (a *Derailleur) startServer(listenOn string) {
 	fmt.Println("listening on ", listenOn)
-	http.HandleFunc("/", a.handleDeployRequest)
+	http.HandleFunc("/", a.handleStatusRequest)
+	http.HandleFunc("/deploy", a.handleDeployRequest)
 	http.ListenAndServe(listenOn, nil)
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"sync"
 	"time"
 
@@ -21,7 +22,11 @@ type Deploy struct {
 
 func (d *Deploy) pullDockerImage() error {
 	d.log("pulling docker image")
-	time.Sleep(2 * time.Second)
+	cmd, err := exec.Command("docker", "pull", "ghcr.io/eljojo/bike-app:main").Output()
+	if err != nil {
+		return err
+	}
+	d.log(string(cmd))
 	return nil
 }
 

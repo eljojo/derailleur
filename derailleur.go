@@ -42,7 +42,7 @@ func (a *Derailleur) attemptDeploy() (d Deploy, e error) {
 	defer a.mu.Unlock()
 
 	deploy := Deploy{
-		jobServers:  2,
+		jobServers:  3,
 		webServers:  3,
 		baseWebPort: 8090,
 		webServerIp: "100.67.131.62",

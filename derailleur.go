@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -17,12 +18,12 @@ type Derailleur struct {
 
 type Deploy struct {
 	duration    time.Duration
-	logString   string
 	jobServers  int
 	webServers  int
 	baseWebPort int
 	webServerIp string
 	dockerImage string
+	response    io.Writer
 }
 
 func main() {
@@ -34,7 +35,7 @@ func main() {
 	app.startServer(listenOn)
 }
 
-func (a *Derailleur) attemptDeploy() (d Deploy, e error) {
+func (a *Derailleur) attemptDeploy(response io.Writer) (d Deploy, e error) {
 	if !a.mu.TryLock() {
 		err := fmt.Errorf("another deploy is already running")
 		return Deploy{}, err
@@ -47,12 +48,13 @@ func (a *Derailleur) attemptDeploy() (d Deploy, e error) {
 		baseWebPort: 8090,
 		webServerIp: "100.67.131.62",
 		dockerImage: "ghcr.io/eljojo/bike-app:main",
+		response:    response,
 	}
-	err := deploy.start()
+	err := deploy.perform()
 	return deploy, err
 }
 
-func (d *Deploy) start() error {
+func (d *Deploy) perform() error {
 	start := time.Now()
 	d.log("🧑‍💻🧿 deploying bike-app")
 
@@ -162,7 +164,7 @@ func (d *Deploy) waitForWebServer(serverPort int) error {
 
 func (d *Deploy) log(msg string) {
 	log.Info(msg)
-	d.logString = d.logString + msg + "\n"
+	fmt.Fprintf(d.response, msg+"\n")
 }
 
 func (a *Derailleur) handleDeployRequest(w http.ResponseWriter, req *http.Request) {
@@ -181,16 +183,15 @@ func (a *Derailleur) handleDeployRequest(w http.ResponseWriter, req *http.Reques
 
 	log.WithFields(log.Fields{"IP": req.RemoteAddr}).Info("attempting deploy")
 
-	deploy, err := a.attemptDeploy()
+	w.WriteHeader(http.StatusOK) // all responses are 200, even failed deploys :(
+
+	deploy, err := a.attemptDeploy(w)
 	if err != nil {
 		log.Error("🚨 Deploy failed! ", err)
-		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintf(w, "🚨 deploy failed: %v\n", err)
 	} else {
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "deploy complete, it took %v seconds\n", deploy.duration)
+		fmt.Fprintf(w, "successful deploy! it took %v seconds\n", deploy.duration)
 	}
-	fmt.Fprintf(w, deploy.logString)
 }
 
 func (a *Derailleur) isDeploying() bool {

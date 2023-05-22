@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -23,7 +22,7 @@ type Deploy struct {
 	baseWebPort int
 	webServerIp string
 	dockerImage string
-	response    io.Writer
+	w           http.ResponseWriter
 }
 
 func main() {
@@ -35,7 +34,7 @@ func main() {
 	app.startServer(listenOn)
 }
 
-func (a *Derailleur) attemptDeploy(response io.Writer) (d Deploy, e error) {
+func (a *Derailleur) attemptDeploy(w http.ResponseWriter) (d Deploy, e error) {
 	if !a.mu.TryLock() {
 		err := fmt.Errorf("another deploy is already running")
 		return Deploy{}, err
@@ -48,7 +47,7 @@ func (a *Derailleur) attemptDeploy(response io.Writer) (d Deploy, e error) {
 		baseWebPort: 8090,
 		webServerIp: "100.67.131.62",
 		dockerImage: "ghcr.io/eljojo/bike-app:main",
-		response:    response,
+		w:           w,
 	}
 	err := deploy.perform()
 	return deploy, err
@@ -164,7 +163,10 @@ func (d *Deploy) waitForWebServer(serverPort int) error {
 
 func (d *Deploy) log(msg string) {
 	log.Info(msg)
-	fmt.Fprintf(d.response, msg+"\n")
+	fmt.Fprintf(d.w, msg+"\n")
+	if f, ok := d.w.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 func (a *Derailleur) handleDeployRequest(w http.ResponseWriter, req *http.Request) {
@@ -190,7 +192,7 @@ func (a *Derailleur) handleDeployRequest(w http.ResponseWriter, req *http.Reques
 		log.Error("🚨 Deploy failed! ", err)
 		fmt.Fprintf(w, "🚨 deploy failed: %v\n", err)
 	} else {
-		fmt.Fprintf(w, "successful deploy! it took %v seconds\n", deploy.duration)
+		fmt.Fprintf(w, "deploy finished! it took %v seconds\n", deploy.duration)
 	}
 }
 

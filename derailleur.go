@@ -5,24 +5,31 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 )
 
-type Derailleur struct {
-	mu sync.Mutex
-}
-
-type Deploy struct {
-	duration    time.Duration
+type App struct {
+	name        string
+	mu          sync.Mutex
 	jobServers  int
 	webServers  int
 	baseWebPort int
 	webServerIp string
 	dockerImage string
-	w           http.ResponseWriter
+}
+
+type Deploy struct {
+	w        http.ResponseWriter
+	duration time.Duration
+	app      *App
+}
+
+type Derailleur struct {
+	apps map[string]*App
 }
 
 func main() {
@@ -30,32 +37,36 @@ func main() {
 	log.SetLevel(log.DebugLevel)
 
 	listenOn := "100.67.131.62:8050"
-	app := Derailleur{}
-	app.startServer(listenOn)
-}
-
-func (a *Derailleur) attemptDeploy(w http.ResponseWriter) (d Deploy, e error) {
-	if !a.mu.TryLock() {
-		err := fmt.Errorf("another deploy is already running")
-		return Deploy{}, err
+	d := Derailleur{
+		apps: make(map[string]*App),
 	}
-	defer a.mu.Unlock()
-
-	deploy := Deploy{
+	d.apps["bike-app"] = &App{
+		name:        "bike-app",
 		jobServers:  3,
 		webServers:  3,
 		baseWebPort: 8090,
 		webServerIp: "100.67.131.62",
 		dockerImage: "ghcr.io/eljojo/bike-app:main",
-		w:           w,
 	}
-	err := deploy.perform()
-	return deploy, err
+	d.startServer(listenOn)
+}
+
+func (a *App) attemptDeploy(w http.ResponseWriter) (*Deploy, error) {
+	if !a.mu.TryLock() {
+		return nil, fmt.Errorf("another deploy is already running for %s", a.name)
+	}
+	defer a.mu.Unlock()
+
+	deploy := Deploy{
+		w:   w,
+		app: a,
+	}
+	return &deploy, nil // Return the deploy instance
 }
 
 func (d *Deploy) perform() error {
 	start := time.Now()
-	d.log("🧑‍💻🧿 deploying bike-app")
+	d.log("🧑‍💻🧿 deploying " + d.app.name)
 
 	err := d.pullDockerImage()
 	if err != nil {
@@ -86,16 +97,16 @@ func (d *Deploy) perform() error {
 
 func (d *Deploy) pullDockerImage() error {
 	d.log("🐳⤵️  pulling docker image")
-	cmd, err := exec.Command("/run/current-system/sw/bin/docker", "pull", d.dockerImage).CombinedOutput()
+	cmd, err := exec.Command("/run/current-system/sw/bin/docker", "pull", d.app.dockerImage).CombinedOutput()
 	d.log(string(cmd))
 	return err
 }
 
 func (d *Deploy) restartJobs() error {
 	d.log("👔 restarting jobs")
-	for i := 1; i <= d.jobServers; i++ {
+	for i := 1; i <= d.app.jobServers; i++ {
 		d.log(fmt.Sprintf("restarting job server %d", i))
-		cmd, err := exec.Command("/run/current-system/sw/bin/systemctl", "restart", fmt.Sprintf("docker-bike-app-jobs-%d", i)).CombinedOutput()
+		cmd, err := exec.Command("/run/current-system/sw/bin/systemctl", "restart", fmt.Sprintf("docker-%s-jobs-%d", d.app.name, i)).CombinedOutput()
 		if err != nil {
 			d.log(string(cmd))
 			return err
@@ -113,14 +124,14 @@ func (d *Deploy) releaseApp() error {
 
 func (d *Deploy) restartWeb() error {
 	d.log("🌐 restarting web servers")
-	for i := 1; i <= d.webServers; i++ {
+	for i := 1; i <= d.app.webServers; i++ {
 		d.log(fmt.Sprintf("restarting web server %d", i))
-		cmd, err := exec.Command("/run/current-system/sw/bin/systemctl", "restart", fmt.Sprintf("docker-bike-app-web-%d", i)).CombinedOutput()
+		cmd, err := exec.Command("/run/current-system/sw/bin/systemctl", "restart", fmt.Sprintf("docker-%s-web-%d", d.app.name, i)).CombinedOutput()
 		if err != nil {
 			d.log(string(cmd))
 			return err
 		}
-		err = d.waitForWebServer(d.baseWebPort + i)
+		err = d.waitForWebServer(d.app.baseWebPort + i)
 		if err != nil {
 			return err
 		}
@@ -134,7 +145,7 @@ func (d *Deploy) postDeploy() error {
 }
 
 func (d *Deploy) runRakeTask(name string) error {
-	container_name := "bike-app-jobs-1" // TODO: make this a new task-runner container
+	container_name := fmt.Sprintf("%s-jobs-1", d.app.name) // Adjusted to dynamic container name
 	log.Debugf("running rake task %s on %s ", name, container_name)
 	cmd, err := exec.Command(
 		"/run/current-system/sw/bin/docker", "exec", "-i", "-e", "NEW_RELIC_AGENT_ENABLED=false", container_name, "/app/bin/rake", name,
@@ -144,7 +155,7 @@ func (d *Deploy) runRakeTask(name string) error {
 }
 
 func (d *Deploy) waitForWebServer(serverPort int) error {
-	url := fmt.Sprintf("http://%s:%d/_ping", d.webServerIp, serverPort)
+	url := fmt.Sprintf("http://%s:%d/_ping", d.app.webServerIp, serverPort)
 	log.Debug("checking ", url)
 	timeoutChan := time.After(60 * time.Second)
 	for {
@@ -169,7 +180,10 @@ func (d *Deploy) log(msg string) {
 	}
 }
 
-func (a *Derailleur) handleDeployRequest(w http.ResponseWriter, req *http.Request) {
+func (d *Derailleur) handleDeployRequest(w http.ResponseWriter, req *http.Request) {
+	appName := strings.TrimPrefix(req.URL.Path, "/")
+	appName = strings.TrimSuffix(appName, "/deploy")
+
 	if req.Method != "POST" {
 		http.Error(w, "404 not found.", http.StatusNotFound)
 		return
@@ -183,41 +197,65 @@ func (a *Derailleur) handleDeployRequest(w http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	log.WithFields(log.Fields{"IP": req.RemoteAddr}).Info("attempting deploy")
+	if app, ok := d.apps[appName]; ok {
+		log.WithFields(log.Fields{"IP": req.RemoteAddr}).Info("attempting deploy")
+		w.WriteHeader(http.StatusOK) // all responses are 200, even failed deploys :(
 
-	w.WriteHeader(http.StatusOK) // all responses are 200, even failed deploys :(
-
-	deploy, err := a.attemptDeploy(w)
-	if err != nil {
-		log.Error("🚨 Deploy failed! ", err)
-		fmt.Fprintf(w, "🚨 deploy failed: %v\n", err)
+		deploy, err := app.attemptDeploy(w)
+		if err != nil {
+			log.Error("🚨 Deploy failed! ", err)
+			fmt.Fprintf(w, "🚨 deploy failed for %s: %v\n", app.name, err)
+		} else {
+			fmt.Fprintf(w, "deploy finished for %s! it took %v seconds\n", app.name, deploy.duration)
+		}
 	} else {
-		fmt.Fprintf(w, "deploy finished! it took %v seconds\n", deploy.duration)
+		http.Error(w, "App not found.", http.StatusNotFound)
 	}
 }
 
-func (a *Derailleur) isDeploying() bool {
+func (d *Derailleur) handleStatusRequest(w http.ResponseWriter, req *http.Request) {
+	appName := strings.TrimPrefix(req.URL.Path, "/")
+	appName = strings.TrimSuffix(appName, "/")
+	if app, ok := d.apps[appName]; ok {
+		log.WithFields(log.Fields{"IP": req.RemoteAddr, "App": appName}).Info("status request")
+		w.WriteHeader(http.StatusOK)
+		if app.isDeploying() {
+			fmt.Fprintf(w, "%s is currently deploying", appName)
+		} else {
+			fmt.Fprintf(w, "%s is not deploying right now", appName)
+		}
+	} else {
+		http.Error(w, "App not found.", http.StatusNotFound)
+	}
+}
+
+func (d *Derailleur) handleRootRequest(w http.ResponseWriter, req *http.Request) {
+	log.WithFields(log.Fields{"IP": req.RemoteAddr}).Info("root request")
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintln(w, "Apps and their deployment status:")
+	for name, app := range d.apps {
+		status := "not deploying"
+		if app.isDeploying() {
+			status = "deploying"
+		}
+		fmt.Fprintf(w, "- %s: %s\n", name, status)
+	}
+}
+
+func (a *App) isDeploying() bool {
 	if a.mu.TryLock() {
 		a.mu.Unlock()
 		return false
 	}
-
 	return true
 }
 
-func (a *Derailleur) handleStatusRequest(w http.ResponseWriter, req *http.Request) {
-	log.WithFields(log.Fields{"IP": req.RemoteAddr}).Info("status request")
-	w.WriteHeader(http.StatusOK)
-	if a.isDeploying() {
-		fmt.Fprintf(w, "deploy in progress")
-	} else {
-		fmt.Fprintf(w, "nothing is deploying right now")
-	}
-}
-
-func (a *Derailleur) startServer(listenOn string) {
+func (d *Derailleur) startServer(listenOn string) {
 	fmt.Println("listening on", listenOn)
-	http.HandleFunc("/", a.handleStatusRequest)
-	http.HandleFunc("/deploy", a.handleDeployRequest)
+	http.HandleFunc("/", d.handleRootRequest)
+	for appName := range d.apps {
+		http.HandleFunc(fmt.Sprintf("/%s/", appName), d.handleStatusRequest)
+		http.HandleFunc(fmt.Sprintf("/%s/deploy", appName), d.handleDeployRequest)
+	}
 	http.ListenAndServe(listenOn, nil)
 }

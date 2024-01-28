@@ -211,7 +211,7 @@ func (d *Deploy) waitForContainer(containerName string, timeout time.Duration) e
 			return fmt.Errorf("timed out waiting for container %s to start", containerName)
 		}
 
-		cmd := exec.Command("/run/current-system/sw/bin/sh", "-c", fmt.Sprintf("docker ps | grep %s", containerName))
+		cmd := exec.Command("sh", "-c", fmt.Sprintf("/run/current-system/sw/bin/docker ps | grep %s", containerName))
 		output, err := cmd.CombinedOutput()
 		if err == nil && strings.Contains(string(output), containerName) {
 			return nil // Container is running

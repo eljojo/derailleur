@@ -61,7 +61,8 @@ func (a *App) attemptDeploy(w http.ResponseWriter) (*Deploy, error) {
 		w:   w,
 		app: a,
 	}
-	return &deploy, nil // Return the deploy instance
+	err := deploy.perform()
+	return &deploy, err // Return the deploy instance
 }
 
 func (d *Deploy) perform() error {

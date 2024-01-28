@@ -216,6 +216,8 @@ func (d *Deploy) waitForContainer(containerName string, timeout time.Duration) e
 		if err == nil && strings.Contains(string(output), containerName) {
 			return nil // Container is running
 		}
+		d.log(string(output))
+		d.log(fmt.Sprintf("%v", err))
 
 		time.Sleep(1 * time.Second)
 	}

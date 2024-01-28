@@ -52,8 +52,8 @@ func main() {
 	}
 	d.apps["bike-place-staging"] = &App{
 		name:          "bike-place-staging",
-		jobServers:    0,
-		webServers:    3,
+		jobServers:    1,
+		webServers:    2,
 		baseWebPort:   8060,
 		webServerIp:   "100.67.131.62",
 		containerRepo: "ghcr.io/eljojo/bike-place",
@@ -147,7 +147,7 @@ func (d *Deploy) restartJobs() error {
 
 func (d *Deploy) releaseApp() error {
 	d.log("💽🧺 running migrations and uploading assets to CDN")
-	return d.runRakeTask("fly:release")
+	return d.runRakeTask("infra:pre_deploy")
 }
 
 func (d *Deploy) restartWeb() error {
@@ -169,7 +169,7 @@ func (d *Deploy) restartWeb() error {
 
 func (d *Deploy) postDeploy() error {
 	d.log("🧹 running post-deploy cleanup")
-	return d.runRakeTask("fly:clear_cdn")
+	return d.runRakeTask("infra:post_deploy")
 }
 
 func (d *Deploy) runRakeTask(name string) error {

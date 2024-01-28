@@ -118,6 +118,7 @@ func (d *Deploy) pullDockerImage() error {
 
 	// Pull the specific tag
 	cmd, err := exec.Command("/run/current-system/sw/bin/docker", "pull", dockerImage).CombinedOutput()
+	d.log(string(cmd))
 	if err != nil {
 		d.log(string(cmd))
 		return err
@@ -125,7 +126,6 @@ func (d *Deploy) pullDockerImage() error {
 
 	// Re-tag the image to app-name:release
 	cmd, err = exec.Command("/run/current-system/sw/bin/docker", "tag", dockerImage, newImageTag).CombinedOutput()
-	d.log(string(cmd))
 	if err != nil {
 		return err
 	}

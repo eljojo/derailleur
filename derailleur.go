@@ -133,15 +133,19 @@ func (d *Deploy) pullDockerImage() error {
 func (d *Deploy) restartJobs() error {
 	d.log("👔 restarting jobs")
 	for i := 1; i <= d.app.jobServers; i++ {
-		d.log(fmt.Sprintf("restarting job server %d", i))
-		cmd, err := exec.Command("/run/current-system/sw/bin/systemctl", "restart", fmt.Sprintf("docker-%s-jobs-%d", d.app.name, i)).CombinedOutput()
+		jobServerName := fmt.Sprintf("%s-jobs-%d", d.app.name, i)
+		d.log(fmt.Sprintf("restarting job server %s", jobServerName))
+		cmd, err := exec.Command("/run/current-system/sw/bin/systemctl", "restart", fmt.Sprintf("docker-%s", jobServerName)).CombinedOutput()
 		if err != nil {
 			d.log(string(cmd))
 			return err
 		}
-		time.Sleep(5 * time.Second)
-	}
 
+		// Wait for the container to be up and running
+		if err := d.waitForContainer(jobServerName, 60*time.Second); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -197,6 +201,23 @@ func (d *Deploy) waitForWebServer(serverPort int) error {
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
+	}
+}
+
+func (d *Deploy) waitForContainer(containerName string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for container %s to start", containerName)
+		}
+
+		cmd := exec.Command("/run/current-system/sw/bin/sh", "-c", fmt.Sprintf("docker ps | grep %s", containerName))
+		output, err := cmd.CombinedOutput()
+		if err == nil && strings.Contains(string(output), containerName) {
+			return nil // Container is running
+		}
+
+		time.Sleep(1 * time.Second)
 	}
 }
 

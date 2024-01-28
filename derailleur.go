@@ -14,13 +14,13 @@ import (
 )
 
 type App struct {
-	name        string
-	mu          sync.Mutex
-	jobServers  int
-	webServers  int
-	baseWebPort int
-	webServerIp string
-	dockerImage string
+	name          string
+	mu            sync.Mutex
+	jobServers    int
+	webServers    int
+	baseWebPort   int
+	webServerIp   string
+	containerRepo string
 }
 
 type Deploy struct {
@@ -43,12 +43,20 @@ func main() {
 		apps: make(map[string]*App),
 	}
 	d.apps["bike-app"] = &App{
-		name:        "bike-app",
-		jobServers:  3,
-		webServers:  3,
-		baseWebPort: 8090,
-		webServerIp: "100.67.131.62",
-		dockerImage: "ghcr.io/eljojo/bike-app",
+		name:          "bike-app",
+		jobServers:    3,
+		webServers:    3,
+		baseWebPort:   8090,
+		webServerIp:   "100.67.131.62",
+		containerRepo: "ghcr.io/eljojo/bike-app",
+	}
+	d.apps["bike-place-staging"] = &App{
+		name:          "bike-place-staging",
+		jobServers:    0,
+		webServers:    3,
+		baseWebPort:   8060,
+		webServerIp:   "100.67.131.62",
+		containerRepo: "ghcr.io/eljojo/bike-place",
 	}
 	d.startServer(listenOn)
 }
@@ -102,18 +110,18 @@ func (d *Deploy) perform() error {
 func (d *Deploy) pullDockerImage() error {
 	d.log("🐳⤵️  pulling docker image with tag: " + d.tag)
 
-	imageToPull := d.app.dockerImage + ":" + d.tag
+	dockerImage := d.app.containerRepo + ":" + d.tag
 	newImageTag := fmt.Sprintf("%s:release", d.app.name)
 
 	// Pull the specific tag
-	cmd, err := exec.Command("/run/current-system/sw/bin/docker", "pull", imageToPull).CombinedOutput()
+	cmd, err := exec.Command("/run/current-system/sw/bin/docker", "pull", dockerImage).CombinedOutput()
 	if err != nil {
 		d.log(string(cmd))
 		return err
 	}
 
 	// Re-tag the image to app-name:release
-	cmd, err = exec.Command("/run/current-system/sw/bin/docker", "tag", imageToPull, newImageTag).CombinedOutput()
+	cmd, err = exec.Command("/run/current-system/sw/bin/docker", "tag", dockerImage, newImageTag).CombinedOutput()
 	d.log(string(cmd))
 	if err != nil {
 		return err

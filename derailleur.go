@@ -21,6 +21,7 @@ type App struct {
 	baseWebPort   int
 	webServerIp   string
 	containerRepo string
+	rakePath      string
 }
 
 type Deploy struct {
@@ -49,6 +50,7 @@ func main() {
 		baseWebPort:   8090,
 		webServerIp:   "100.67.131.62",
 		containerRepo: "ghcr.io/eljojo/bike-app",
+		rakePath:      "/app/bin/rake",
 	}
 	d.apps["bike-place-staging"] = &App{
 		name:          "bike-place-staging",
@@ -57,6 +59,7 @@ func main() {
 		baseWebPort:   8060,
 		webServerIp:   "100.67.131.62",
 		containerRepo: "ghcr.io/eljojo/bike-place",
+		rakePath:      "/rails/bin/rake",
 	}
 	d.startServer(listenOn)
 }
@@ -180,7 +183,7 @@ func (d *Deploy) runRakeTask(name string) error {
 	container_name := fmt.Sprintf("%s-jobs-1", d.app.name) // Adjusted to dynamic container name
 	log.Debugf("running rake task %s on %s ", name, container_name)
 	cmd, err := exec.Command(
-		"/run/current-system/sw/bin/docker", "exec", "-i", "-e", "NEW_RELIC_AGENT_ENABLED=false", container_name, "/app/bin/rake", name,
+		"/run/current-system/sw/bin/docker", "exec", "-i", "-e", "NEW_RELIC_AGENT_ENABLED=false", container_name, d.app.rakePath, name,
 	).CombinedOutput()
 	d.log(string(cmd))
 	return err
@@ -216,8 +219,6 @@ func (d *Deploy) waitForContainer(containerName string, timeout time.Duration) e
 		if err == nil && strings.Contains(string(output), containerName) {
 			return nil // Container is running
 		}
-		d.log(string(output))
-		d.log(fmt.Sprintf("%v", err))
 
 		time.Sleep(1 * time.Second)
 	}

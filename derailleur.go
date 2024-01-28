@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ type Deploy struct {
 	w        http.ResponseWriter
 	duration time.Duration
 	app      *App
+	tag      string
 }
 
 type Derailleur struct {
@@ -46,12 +48,12 @@ func main() {
 		webServers:  3,
 		baseWebPort: 8090,
 		webServerIp: "100.67.131.62",
-		dockerImage: "ghcr.io/eljojo/bike-app:main",
+		dockerImage: "ghcr.io/eljojo/bike-app",
 	}
 	d.startServer(listenOn)
 }
 
-func (a *App) attemptDeploy(w http.ResponseWriter) (*Deploy, error) {
+func (a *App) attemptDeploy(w http.ResponseWriter, tag string) (*Deploy, error) {
 	if !a.mu.TryLock() {
 		return nil, fmt.Errorf("another deploy is already running for %s", a.name)
 	}
@@ -60,6 +62,7 @@ func (a *App) attemptDeploy(w http.ResponseWriter) (*Deploy, error) {
 	deploy := Deploy{
 		w:   w,
 		app: a,
+		tag: tag,
 	}
 	err := deploy.perform()
 	return &deploy, err // Return the deploy instance
@@ -97,10 +100,26 @@ func (d *Deploy) perform() error {
 }
 
 func (d *Deploy) pullDockerImage() error {
-	d.log("🐳⤵️  pulling docker image")
-	cmd, err := exec.Command("/run/current-system/sw/bin/docker", "pull", d.app.dockerImage).CombinedOutput()
+	d.log("🐳⤵️  pulling docker image with tag: " + d.tag)
+
+	imageToPull := d.app.dockerImage + ":" + d.tag
+	newImageTag := fmt.Sprintf("%s:release", d.app.name)
+
+	// Pull the specific tag
+	cmd, err := exec.Command("/run/current-system/sw/bin/docker", "pull", imageToPull).CombinedOutput()
+	if err != nil {
+		d.log(string(cmd))
+		return err
+	}
+
+	// Re-tag the image to app-name:release
+	cmd, err = exec.Command("/run/current-system/sw/bin/docker", "tag", imageToPull, newImageTag).CombinedOutput()
 	d.log(string(cmd))
-	return err
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (d *Deploy) restartJobs() error {
@@ -198,11 +217,17 @@ func (d *Derailleur) handleDeployRequest(w http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	tag := req.URL.Query().Get("tag") // Get the tag from the query parameter
+	if tag == "" || !isValidInput(tag) {
+		http.Error(w, "Missing tag parameter.", http.StatusBadRequest)
+		return
+	}
+
 	if app, ok := d.apps[appName]; ok {
 		log.WithFields(log.Fields{"IP": req.RemoteAddr}).Info("attempting deploy")
 		w.WriteHeader(http.StatusOK) // all responses are 200, even failed deploys :(
 
-		deploy, err := app.attemptDeploy(w)
+		deploy, err := app.attemptDeploy(w, tag)
 		if err != nil {
 			log.Error("🚨 Deploy failed! ", err)
 			fmt.Fprintf(w, "🚨 deploy failed for %s: %v\n", app.name, err)
@@ -249,6 +274,11 @@ func (a *App) isDeploying() bool {
 		return false
 	}
 	return true
+}
+
+func isValidInput(input string) bool {
+	validInputRegex := regexp.MustCompile(`^[a-zA-Z0-9-]+$`)
+	return validInputRegex.MatchString(input)
 }
 
 func (d *Derailleur) startServer(listenOn string) {
